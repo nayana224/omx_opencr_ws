@@ -4,8 +4,18 @@
 #include <open_manipulator_libs.h>
 #include <Eigen/Dense>
 #include <math.h>
+#include <vector>
 
-int LED[4] = {60, 61, 62, 63};
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+constexpr double OMX_DEG_TO_RAD = M_PI / 180.0;
+constexpr double OMX_RAD_TO_DEG = 180.0 / M_PI;
+constexpr float OMX_JOINT_OFFSET_DEG = -4.8; // Manual calibration offset for J2/J3.
+constexpr double OMX_PITCH_OFFSET_RAD = -0.14;
+
+const uint8_t LED_PIN[4] = {60, 61, 62, 63};
 const uint8_t SW_PIN[4] = {50, 51, 52, 53};
 
 
@@ -21,13 +31,16 @@ inline void initManipulator()
 // ==================== 내부 제어 루프 실행 ====================
 inline void runManipulator(double sec)
 {
+  if (sec <= 0.0)
+    return;
+
   const uint32_t period_ms = 10; // 100 Hz
   uint32_t start_ms = millis();
   double start_time = start_ms / 1000.0;
 
   while ((millis() - start_ms) < (uint32_t)(sec * 1000.0))
   {
-    double now = (millis() / 1000.0) - start_time; 
+    double now = (millis() / 1000.0) - start_time;
     omx.processOpenManipulator(now);
     delay(period_ms);
   }
@@ -40,10 +53,16 @@ inline std::vector<double> readJoint()
   std::vector<robotis_manipulator::JointValue> joints = omx.getAllActiveJointValue();
   std::vector<double> jnt_deg(4);
 
-  for (int i = 0; i < 4; i++)
-    jnt_deg[i] = joints[i].position * 180.0 / M_PI;  // rad → deg 변환
+  if (joints.size() < 4)
+  {
+    Serial.println("[ERROR] readJoint(): Could not read 4 active joints.");
+    return jnt_deg;
+  }
 
-  Serial.println("[INFO] readJointDeg(): Current joint angles (deg)");
+  for (int i = 0; i < 4; i++)
+    jnt_deg[i] = joints[i].position * OMX_RAD_TO_DEG;  // rad -> deg 변환
+
+  Serial.println("[INFO] readJoint(): Current joint angles (deg)");
   for (int i = 0; i < 4; i++)
   {
     Serial.print("  J"); Serial.print(i + 1);
@@ -73,9 +92,9 @@ inline void moveHome(double t = 2.0)
   // 오프셋 보정(rad 단위)
   std::vector<double> home_pos = {
     0.0,
-    -4.8 * M_PI / 180.0,
-    -4.8 * M_PI / 180.0,
-    0.0 * M_PI / 180.0
+    OMX_JOINT_OFFSET_DEG * OMX_DEG_TO_RAD,
+    OMX_JOINT_OFFSET_DEG * OMX_DEG_TO_RAD,
+    0.0
   };
   omx.makeJointTrajectory(home_pos, t);
 
@@ -90,16 +109,15 @@ inline void moveJointAbs(float j1, float j2, float j3, float j4, double t = 2.0)
   runManipulator(0.15);
 
   // === 오프셋 보정 (J2, J3) ===
-  const float offset_deg = -4.8;  // 메뉴얼 기준 오프셋
-  j2 += offset_deg;
-  j3 += offset_deg;
+  j2 += OMX_JOINT_OFFSET_DEG;
+  j3 += OMX_JOINT_OFFSET_DEG;
 
-  // deg → rad 변환
+  // deg -> rad 변환
   std::vector<double> goal_rad = {
-    j1 * M_PI / 180.0,
-    j2 * M_PI / 180.0,
-    j3 * M_PI / 180.0,
-    j4 * M_PI / 180.0
+    j1 * OMX_DEG_TO_RAD,
+    j2 * OMX_DEG_TO_RAD,
+    j3 * OMX_DEG_TO_RAD,
+    j4 * OMX_DEG_TO_RAD
   };
 
   omx.makeJointTrajectory(goal_rad, t);
@@ -112,12 +130,12 @@ inline void moveJointRel(float dj1, float dj2, float dj3, float dj4, double t = 
 {
   runManipulator(0.15);
 
-  // deg → rad 변환
+  // deg -> rad 변환
   std::vector<double> delta_rad = {
-    dj1 * M_PI / 180.0,
-    dj2 * M_PI / 180.0,
-    dj3 * M_PI / 180.0,
-    dj4 * M_PI / 180.0
+    dj1 * OMX_DEG_TO_RAD,
+    dj2 * OMX_DEG_TO_RAD,
+    dj3 * OMX_DEG_TO_RAD,
+    dj4 * OMX_DEG_TO_RAD
   };
 
   omx.makeJointTrajectoryFromPresentPosition(delta_rad, t);
@@ -165,12 +183,12 @@ inline void keepHorizontal(double t = 2)
   std::vector<double> jnt = readJoint();  // [J1, J2, J3, J4] in deg
 
   // deg → rad 변환
-  double j1 = jnt[0] * M_PI / 180.0;
-  double j2 = jnt[1] * M_PI / 180.0;
-  double j3 = jnt[2] * M_PI / 180.0;
+  double j1 = jnt[0] * OMX_DEG_TO_RAD;
+  double j2 = jnt[1] * OMX_DEG_TO_RAD;
+  double j3 = jnt[2] * OMX_DEG_TO_RAD;
 
   // 수평 유지 계산 (rad) (약간의 보정 포함)
-  double j4_new = -(j2 + j3) - 0.14;
+  double j4_new = -(j2 + j3) + OMX_PITCH_OFFSET_RAD;
 
   // rad 단위 goal
   std::vector<double> goal = {j1, j2, j3, j4_new};
@@ -188,13 +206,13 @@ inline void setPitch(double target_pitch_deg, double t = 1.5)
   std::vector<double> jnt_deg = readJoint();  // [J1, J2, J3, J4]
 
   // deg → rad 변환
-  double j1 = jnt_deg[0] * M_PI / 180.0;
-  double j2 = jnt_deg[1] * M_PI / 180.0;
-  double j3 = jnt_deg[2] * M_PI / 180.0;
-  double target_pitch_rad = target_pitch_deg * M_PI / 180.0;
+  double j1 = jnt_deg[0] * OMX_DEG_TO_RAD;
+  double j2 = jnt_deg[1] * OMX_DEG_TO_RAD;
+  double j3 = jnt_deg[2] * OMX_DEG_TO_RAD;
+  double target_pitch_rad = target_pitch_deg * OMX_DEG_TO_RAD;
 
   // 지정된 pitch 각도에 맞게 J4 계산 (약간의 보정 포함)
-  double j4_new = target_pitch_rad - (j2 + j3) - 0.14;
+  double j4_new = target_pitch_rad - (j2 + j3) + OMX_PITCH_OFFSET_RAD;
 
   // rad 단위 goal 벡터 생성
   std::vector<double> goal = {j1, j2, j3, j4_new};
@@ -203,31 +221,32 @@ inline void setPitch(double target_pitch_deg, double t = 1.5)
 }
 
 //======= LED, SW 관련 함수=============
-void setPins(){
+inline void setPins()
+{
   for (int i = 0; i < 4; i++) {
-    pinMode(LED[i], OUTPUT);
+    pinMode(LED_PIN[i], OUTPUT);
     pinMode(SW_PIN[i], INPUT);
   }
 }
 
-void setLEDs(uint8_t value) {
+inline void setLEDs(uint8_t value) {
   value &= 0x0F; // 하위 4비트만 사용
   for (uint8_t i = 0; i < 4; i++) {
     // i번째 비트가 1이면 켜고, 0이면 끔
-    digitalWrite(LED[i], (value & (1 << i)) ? HIGH : LOW);
+    digitalWrite(LED_PIN[i], (value & (1 << i)) ? HIGH : LOW);
   }
 }
 
-int SW1() {
+inline int SW1() {
   return digitalRead(SW_PIN[0]);
 }
-int SW2() {
- return digitalRead(SW_PIN[1]);
+inline int SW2() {
+  return digitalRead(SW_PIN[1]);
 }
-int SW3() {
+inline int SW3() {
   return digitalRead(SW_PIN[2]);
 }
-int SW4() {
+inline int SW4() {
   return digitalRead(SW_PIN[3]);
 }
 

@@ -1,6 +1,5 @@
 #include "utils.h"
 
-uint8_t flag = 0;
 
 void setup()
 {
@@ -15,20 +14,23 @@ void setup()
 
 void loop()
 {
-  if (Serial.available())
-  {
-    String s = Serial.readStringUntil('\n');
-    float x, y, z;
-    if (sscanf(s.c_str(), "%f,%f,%f", &x, &y, &z) == 3)
-    {
-      Serial.print("[CMD] Target: ");
-      Serial.println(s);
+  /*
+    이 파일은 함수 실습용 스케치입니다.
+    아래 예시를 하나씩 주석 해제해서 정기구학/역기구학 동작을 관찰하세요.
 
-      // 카메라 좌표를 매니퓰레이터 좌표계로 보정할 수 있다면 여기서 보정 (예: x += offset)
-      moveTCPAbs(x, y, z);  // pitch은 0 도 기본값
-    }
-  }
+    readJoint();
+    readTCP();
+
+    moveHome();
+    moveJointAbs(0, 20, -20, 0, 2.0);
+    moveJointRel(0, 10, 0, 0, 1.5);
+
+    moveTCPAbs(0.20, 0.00, 0.10, 2.0);
+    moveTCPRel(0.00, 0.00, 0.03, 1.5);
+
+    keepHorizontal();
+    setPitch(15);
+    setGripper(true);
+  */
 }
-
-
 
