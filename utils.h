@@ -7,49 +7,46 @@
 
 #include "omx_internal.h"
 
-// ==================== 초기화 ====================
 inline void initManipulator()
 {
   if (initRobotRuntime())
-    Serial.println("[OK] OpenManipulator initialized and joint feedback synced.");
+    Serial.println("[OK] OpenManipulator initialized.");
   else
-    Serial.println("[ERROR] OpenManipulator initialization finished, but joint feedback sync failed.");
+    Serial.println("[ERROR] Joint feedback sync failed.");
 }
 
-// ==================== readJoint(): 현재 조인트 각도 읽기 ====================
-// 학생에게는 software calibration이 적용된 J1~J4 각도를 degree로 보여줍니다.
+// 현재 보정된 Joint 각도 [degree]
 inline std::vector<double> readJoint()
 {
   std::vector<robotis_manipulator::JointValue> joints;
   if (!syncRobotState(&joints))
     return {};
 
-  std::vector<double> jnt_deg(4);
-  for (int i = 0; i < 4; ++i)
-    jnt_deg[i] = joints[i].position * OMX_RAD_TO_DEG;
+  std::vector<double> joint_deg(4);
+  Serial.println("[INFO] Joint angles (deg)");
 
-  Serial.println("[INFO] readJoint(): Current calibrated joint angles (deg)");
   for (int i = 0; i < 4; ++i)
   {
-    Serial.print("  J"); Serial.print(i + 1);
-    Serial.print(": "); Serial.print(jnt_deg[i], 2);
-    Serial.println(" deg");
+    joint_deg[i] = joints[i].position * OMX_RAD_TO_DEG;
+    Serial.print("  J");
+    Serial.print(i + 1);
+    Serial.print(": ");
+    Serial.println(joint_deg[i], 2);
   }
 
-  return jnt_deg;
+  return joint_deg;
 }
 
-// ==================== readTCP(): 현재 TCP 좌표 읽기 ====================
-// 실제 actuator 값을 읽은 뒤 calibrated ROBOTIS model로 FK를 계산합니다.
+// BASE 좌표 기준 현재 TCP 위치 [m]
 inline Eigen::Vector3d readTCP()
 {
   if (!syncRobotState())
     return Eigen::Vector3d(NAN, NAN, NAN);
 
-  robotis_manipulator::KinematicPose pose = omx_model.getKinematicPose("gripper");
-  Eigen::Vector3d tcp = pose.position;
+  const Eigen::Vector3d tcp =
+      omx_model.getKinematicPose("gripper").position;
 
-  Serial.println("[INFO] readTCP(): Current calibrated TCP position (m)");
+  Serial.println("[INFO] TCP position (m)");
   Serial.print("  X: "); Serial.println(tcp(0), 6);
   Serial.print("  Y: "); Serial.println(tcp(1), 6);
   Serial.print("  Z: "); Serial.println(tcp(2), 6);
@@ -57,73 +54,77 @@ inline Eigen::Vector3d readTCP()
   return tcp;
 }
 
-// ==================== moveHome(): calibrated 0 deg 자세 ====================
-inline void moveHome(double t = 2.0)
+inline void moveHome(double t = OMX_DEFAULT_MOVE_SEC)
 {
   moveCalibratedJointRad({0.0, 0.0, 0.0, 0.0}, t);
 }
 
-// ==================== moveJointAbs(): Joint 절대이동 [degree] ====================
-inline void moveJointAbs(float j1, float j2, float j3, float j4, double t = 2.0)
+// Joint 절대 이동 [degree]
+inline void moveJointAbs(
+    float j1, float j2, float j3, float j4,
+    double t = OMX_DEFAULT_MOVE_SEC)
 {
-  std::vector<double> goal_rad = {
+  moveCalibratedJointRad({
     j1 * OMX_DEG_TO_RAD,
     j2 * OMX_DEG_TO_RAD,
     j3 * OMX_DEG_TO_RAD,
     j4 * OMX_DEG_TO_RAD
-  };
-
-  moveCalibratedJointRad(goal_rad, t);
+  }, t);
 }
 
-// ==================== moveJointRel(): Joint 상대이동 [degree] ====================
-inline void moveJointRel(float dj1, float dj2, float dj3, float dj4, double t = 2.0)
+// Joint 상대 이동 [degree]
+inline void moveJointRel(
+    float dj1, float dj2, float dj3, float dj4,
+    double t = OMX_DEFAULT_MOVE_SEC)
 {
   std::vector<robotis_manipulator::JointValue> present;
   if (!syncRobotState(&present))
     return;
 
-  std::vector<double> goal_rad = {
+  moveCalibratedJointRad({
     present[0].position + dj1 * OMX_DEG_TO_RAD,
     present[1].position + dj2 * OMX_DEG_TO_RAD,
     present[2].position + dj3 * OMX_DEG_TO_RAD,
     present[3].position + dj4 * OMX_DEG_TO_RAD
-  };
-
-  moveCalibratedJointRad(goal_rad, t);
+  }, t);
 }
 
-// ==================== moveTCPAbs(): TCP 절대 위치 직선이동 [m] ====================
-// ROBOTIS task trajectory + IK를 calibrated shadow model에서 그대로 사용합니다.
-inline void moveTCPAbs(float x, float y, float z, double t = 2.0)
+// TCP 절대 위치 직선 이동 [m]
+inline void moveTCPAbs(
+    float x, float y, float z,
+    double t = OMX_DEFAULT_MOVE_SEC)
 {
-  Eigen::Vector3d pos(x, y, z);
-
-  if (!startCalibratedTaskTrajectory(pos, t, false))
+  double move_time = t;
+  if (!startCalibratedLinearTaskTrajectory(
+          Eigen::Vector3d(x, y, z), t, false, &move_time))
     return;
 
-  runCalibratedTaskTrajectory(t);
+  runCalibratedTaskTrajectory(move_time);
 }
 
-// ==================== moveTCPRel(): TCP 상대이동 [m] ====================
-inline void moveTCPRel(float dx, float dy, float dz, double t = 2.0)
+// TCP 상대 위치 직선 이동 [m]
+inline void moveTCPRel(
+    float dx, float dy, float dz,
+    double t = OMX_DEFAULT_MOVE_SEC)
 {
-  Eigen::Vector3d delta(dx, dy, dz);
-
-  if (!startCalibratedTaskTrajectory(delta, t, true))
+  double move_time = t;
+  if (!startCalibratedLinearTaskTrajectory(
+          Eigen::Vector3d(dx, dy, dz), t, true, &move_time))
     return;
 
-  runCalibratedTaskTrajectory(t);
+  runCalibratedTaskTrajectory(move_time);
 }
 
-// ==================== setGripper(): 그리퍼 제어 ====================
 inline void setGripper(bool open, double wait_sec = 1.0)
 {
-  // tool trajectory는 별도 move_time을 받지 않으므로 wait_sec은 명령 후 대기시간입니다.
-  omx.processOpenManipulator(omxNowSec());
+  if (wait_sec < OMX_MIN_MOVE_SEC)
+    wait_sec = OMX_MIN_MOVE_SEC;
 
-  const double goal = open ? OMX_GRIPPER_OPEN_M : OMX_GRIPPER_CLOSE_M;
-  omx.makeToolTrajectory("gripper", goal);
+  omx.processOpenManipulator(omxNowSec());
+  omx.makeToolTrajectory(
+      "gripper",
+      open ? OMX_GRIPPER_OPEN_M : OMX_GRIPPER_CLOSE_M);
+
   runManipulator(wait_sec + OMX_MOTION_SETTLE_SEC);
 }
 
@@ -137,52 +138,49 @@ inline void closeGripper(double wait_sec = 1.0)
   setGripper(false, wait_sec);
 }
 
-// ==================== keepHorizontal(): 수평유지 보정 ====================
-// OpenManipulator-X의 J2/J3/J4는 같은 Y축 회전이므로
-// 기본 pitch = J2 + J3 + J4 관계를 이용합니다.
-inline void keepHorizontal(double t = 2.0)
+// 바닥 기준 수평 자세
+inline void keepHorizontal(double t = OMX_DEFAULT_MOVE_SEC)
 {
   std::vector<robotis_manipulator::JointValue> joints;
   if (!syncRobotState(&joints))
     return;
 
-  const double j4_new =
-      -(joints[1].position + joints[2].position) + OMX_PITCH_CORRECTION_RAD;
-
-  std::vector<double> goal = {
-    joints[0].position,
-    joints[1].position,
-    joints[2].position,
-    j4_new
-  };
-
-  moveCalibratedJointRad(goal, t);
-}
-
-// ==================== setPitch(): 지정 pitch로 기울이기 ====================
-// pitch = J2 + J3 + J4 -> J4 = pitch - (J2 + J3)
-inline void setPitch(double target_pitch_deg, double t = 1.5)
-{
-  std::vector<robotis_manipulator::JointValue> joints;
-  if (!syncRobotState(&joints))
-    return;
-
-  const double target_pitch_rad = target_pitch_deg * OMX_DEG_TO_RAD;
-  const double j4_new =
-      target_pitch_rad - (joints[1].position + joints[2].position)
+  const double j4 =
+      -(joints[1].position + joints[2].position)
       + OMX_PITCH_CORRECTION_RAD;
 
-  std::vector<double> goal = {
+  moveCalibratedJointRad({
     joints[0].position,
     joints[1].position,
     joints[2].position,
-    j4_new
-  };
-
-  moveCalibratedJointRad(goal, t);
+    j4
+  }, t);
 }
 
-// ==================== 외부 LED / SW 보드 ====================
+// 그리퍼 절대 pitch [degree]
+inline void setPitch(
+    double target_pitch_deg,
+    double t = OMX_DEFAULT_PITCH_MOVE_SEC)
+{
+  std::vector<robotis_manipulator::JointValue> joints;
+  if (!syncRobotState(&joints))
+    return;
+
+  const double target_pitch = target_pitch_deg * OMX_DEG_TO_RAD;
+  const double j4 =
+      target_pitch
+      - (joints[1].position + joints[2].position)
+      + OMX_PITCH_CORRECTION_RAD;
+
+  moveCalibratedJointRad({
+    joints[0].position,
+    joints[1].position,
+    joints[2].position,
+    j4
+  }, t);
+}
+
+// 대회용 외부 I/O 보드
 inline void setPins()
 {
   for (int i = 0; i < 4; ++i)
