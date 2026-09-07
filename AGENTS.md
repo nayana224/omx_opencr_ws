@@ -26,6 +26,8 @@
 - ROBOTIS 기능을 별도로 재구현하지 않고 wrapper는 단위 변환, calibration, 상태 동기화, 안전 검사와 사용성 개선에 집중합니다.
 - `processOpenManipulator()`에는 부팅 이후 계속 증가하는 절대 시간을 전달합니다.
 - 학생용 API에서 DYNAMIXEL ID, raw actuator position, control-loop 호출을 노출하지 않습니다.
+- OpenCR의 Eigen 의존성은 보드 패키지에 포함된 `Eigen331`을 사용하며 `#include <Eigen.h>`를 사용합니다.
+- `#include <Eigen/Dense>`를 직접 사용하지 않습니다. Arduino의 라이브러리 탐색 단계에서 `Eigen331`을 인식하지 못할 수 있습니다.
 
 ## Code comment style
 
