@@ -19,7 +19,15 @@
 - ROBOTIS 기능을 별도로 재구현하지 않고 wrapper는 단위 변환, calibration, 상태 동기화, 안전 검사와 사용성 개선에 집중합니다.
 - `processOpenManipulator()`에는 부팅 이후 계속 증가하는 절대 시간을 전달합니다.
 - 학생용 API에서 DYNAMIXEL ID, raw actuator position, control-loop 호출을 노출하지 않습니다.
-- 주석은 필요한 부분에만 짧고 명확한 한글로 작성합니다.
+
+## Code comment style
+
+- 주석은 필요한 위치에만 작성하고 구현을 그대로 읽어주는 설명은 피합니다.
+- 기술 문서 톤의 간결한 한글을 사용합니다.
+- 주석은 함수 목적, 좌표계, 단위, 보정 관계, 안전 제약, 비직관적인 구현 이유를 중심으로 작성합니다.
+- `쉽게`, `알아서`, `학생이 몰라도 됨`처럼 구어적이거나 과도하게 친절한 표현은 사용하지 않습니다.
+- `현재 Joint 각도 [degree]`, `TCP 절대 위치 직선 이동 [m]`처럼 대상과 단위를 명확히 표기합니다.
+- ROBOTIS API 동작과 프로젝트 wrapper 동작을 구분해야 하는 경우 그 차이만 짧게 명시합니다.
 
 ## README documentation rules
 
