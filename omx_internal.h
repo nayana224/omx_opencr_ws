@@ -110,9 +110,20 @@ inline bool moveCalibratedJointRad(const std::vector<double>& calibrated_goal_ra
     return false;
   }
 
-  // 새 trajectory를 만들기 직전에 실제 ROBOTIS trajectory clock과 feedback을 갱신합니다.
-  // 학생 코드 사이에 delay()가 있어도 다음 명령이 중간 tick에서 시작하지 않게 합니다.
+  // 새 trajectory를 만들기 직전에 ROBOTIS clock을 현재 절대시간으로 갱신합니다.
   omx.processOpenManipulator(omxNowSec());
+
+  // calibrated TCP trajectory를 low-level actuator 전송으로 수행한 뒤에도
+  // 다음 joint trajectory가 stale trajectory state가 아닌 실제 feedback에서 시작하도록
+  // 현재 raw joint를 명시적인 present_joint_value로 넘깁니다.
+  std::vector<robotis_manipulator::JointValue> raw_present =
+      omx.receiveAllJointActuatorValue();
+
+  if (raw_present.size() < 4)
+  {
+    Serial.println("[ERROR] Cannot start joint trajectory without joint feedback.");
+    return false;
+  }
 
   std::vector<robotis_manipulator::JointValue> calibrated_goal(4);
   for (size_t i = 0; i < 4; ++i)
@@ -129,7 +140,7 @@ inline bool moveCalibratedJointRad(const std::vector<double>& calibrated_goal_ra
   if (!rawJointGoalIsSafe(raw_goal))
     return false;
 
-  omx.makeJointTrajectory(raw_goal, move_time);
+  omx.makeJointTrajectory(raw_goal, move_time, raw_present);
   runManipulator(move_time + OMX_MOTION_SETTLE_SEC);
   return syncRobotState();
 }
