@@ -2,7 +2,7 @@
 #define OMX_INTERNAL_H
 
 #include <open_manipulator_libs.h>
-#include <Eigen/Dense>
+#include <Eigen.h>
 #include <math.h>
 #include <vector>
 
@@ -50,7 +50,7 @@ inline double resolveMoveTime(double requested_sec, double distance, double max_
   return move_time;
 }
 
-// Raw actuator 좌표 -> 보정된 학생 좌표
+// Raw actuator 좌표 -> 보정 좌표
 inline std::vector<robotis_manipulator::JointValue> rawToCalibrated(
     const std::vector<robotis_manipulator::JointValue>& raw)
 {
@@ -63,7 +63,7 @@ inline std::vector<robotis_manipulator::JointValue> rawToCalibrated(
   return calibrated;
 }
 
-// 보정된 학생 좌표 -> Raw actuator 좌표
+// 보정 좌표 -> Raw actuator 좌표
 inline std::vector<robotis_manipulator::JointValue> calibratedToRaw(
     const std::vector<robotis_manipulator::JointValue>& calibrated)
 {
@@ -119,7 +119,7 @@ inline void runManipulator(double sec)
   omx.processOpenManipulator(omxNowSec());
 }
 
-// 보정 좌표 기준 학생용 Joint 안전 범위를 검사합니다.
+// 보정 좌표 기준 Joint 안전 범위를 검사합니다.
 inline bool calibratedJointGoalIsSafe(
     const std::vector<robotis_manipulator::JointValue>& calibrated_goal)
 {
