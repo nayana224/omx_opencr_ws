@@ -59,7 +59,7 @@ void loop()
   moveTCPRel(0.00, 0.00, 0.03);
   closeGripper();
 
-  while (1);  // 한 번만 실행
+  while (1);  // 단일 시퀀스 종료
 }
 ```
 
@@ -133,7 +133,7 @@ openGripper();
 closeGripper();
 ```
 
-`openGripper()` / `closeGripper()`는 기존 `setGripper(bool)`를 더 직관적으로 사용할 수 있게 만든 함수입니다.
+`openGripper()` / `closeGripper()`는 기존 `setGripper(bool)`를 동일 기능의 명시적 API로 분리한 함수입니다.
 
 ### External I/O
 
@@ -207,7 +207,7 @@ moveTCPRel(0, 0, 0.05);       // 2.0 s
 setPitch(10);                  // 1.5 s
 ```
 
-` t `가 너무 짧아 설정된 속도 기준을 넘는 경우 실제 동작 시간은 자동으로 늘어납니다.
+`t`가 너무 짧아 설정된 속도 기준을 넘는 경우 실제 동작 시간은 자동으로 늘어납니다.
 
 ```text
 [SAFE] Move time adjusted to 4.00 sec.
@@ -224,7 +224,7 @@ TCP   : m/s
 
 따라서 숫자 속도를 같게 두지 않고, 각각의 기준 속도에 동일한 scale을 적용합니다.
 
-기본 설정은 `omx_config.h`에서 관리합니다.
+기본 설정은 `src/omx/omx_config.h`에서 관리합니다.
 
 ```cpp
 constexpr double OMX_MOTION_SPEED_SCALE = 1.0;
@@ -253,9 +253,9 @@ constexpr double OMX_MOTION_SPEED_SCALE = 0.5;
 
 - Joint 명령은 기본적으로 `-90 ~ +90 degree` 범위에서 사용합니다.
 - 동작 시간은 기본적으로 `1초 이상`이 되도록 제한합니다.
-- 처음 테스트할 때는 작은 각도와 작은 TCP 이동부터 확인합니다.
+- 초기 테스트는 작은 Joint 각도와 작은 TCP 이동으로 수행합니다.
 - 도달하기 어려운 TCP 좌표를 한 번에 크게 지정하지 않습니다.
-- 동작 중에는 Power OFF 또는 RESET을 바로 사용할 수 있도록 준비합니다.
+- 동작 중에는 Power OFF 또는 RESET을 즉시 사용할 수 있도록 준비합니다.
 
 안전 범위를 벗어나거나 IK 계산이 실패하면 Serial Monitor에 `[ERROR]`가 출력되고 해당 동작을 중단합니다.
 
@@ -338,13 +338,18 @@ void loop()
 
 ```text
 .
-├── Omx_Manual.ino   # 사용자 코드
-├── utils.h          # public API
-├── omx_internal.h   # 상태 동기화, trajectory, FK/IK, calibration
-├── omx_config.h     # 속도, 보정값, 외부 I/O 설정
-├── AGENTS.md        # 저장소 개발 원칙
-└── README.md
+├── Omx_Manual.ino       # 사용자 코드
+├── utils.h              # 학생용 public API
+├── README.md
+├── AGENTS.md            # 저장소 개발 원칙
+└── src/
+    └── omx/
+        ├── omx_internal.h  # 상태 동기화, trajectory, FK/IK, calibration
+        └── omx_config.h    # 속도, 보정값, 외부 I/O 설정
 ```
+
+학생용 코드에서는 `utils.h`만 include합니다.
+`src/omx/`는 runtime 및 설정을 분리하기 위한 내부 구현 디렉터리입니다.
 
 ### Software Calibration
 
@@ -408,7 +413,7 @@ omx.processOpenManipulator(millis() / 1000.0);
 
 ### Configuration
 
-주요 설정은 `omx_config.h`에서 관리합니다.
+주요 설정은 `src/omx/omx_config.h`에서 관리합니다.
 
 ```text
 OMX_MOTION_SPEED_SCALE
