@@ -218,9 +218,12 @@ inline bool startCalibratedLinearTaskTrajectory(
 
   const Eigen::Vector3d current =
       omx_model.getKinematicPose("gripper").position;
-  const Eigen::Vector3d goal = relative ? current + target : target;
-  const double distance = (goal - current).norm();
 
+  Eigen::Vector3d goal = target;
+  if (relative)
+    goal = current + target;
+
+  const double distance = (goal - current).norm();
   const double move_time = resolveMoveTime(
       requested_time,
       distance,
