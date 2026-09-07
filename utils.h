@@ -5,7 +5,7 @@
 #include <math.h>
 #include <vector>
 
-#include "omx_internal.h"
+#include "src/omx/omx_internal.h"
 
 inline void initManipulator()
 {
@@ -15,7 +15,7 @@ inline void initManipulator()
     Serial.println("[ERROR] Joint feedback sync failed.");
 }
 
-// 현재 보정된 Joint 각도 [degree]
+// 현재 Joint 각도 [degree]
 inline std::vector<double> readJoint()
 {
   std::vector<robotis_manipulator::JointValue> joints;
@@ -54,6 +54,7 @@ inline Eigen::Vector3d readTCP()
   return tcp;
 }
 
+// Home 자세 이동 [degree]
 inline void moveHome(double t = OMX_DEFAULT_MOVE_SEC)
 {
   moveCalibratedJointRad({0.0, 0.0, 0.0, 0.0}, t);
@@ -89,7 +90,7 @@ inline void moveJointRel(
   }, t);
 }
 
-// TCP 절대 위치 직선 이동 [m]
+// BASE 좌표 기준 TCP 절대 위치 직선 이동 [m]
 inline void moveTCPAbs(
     float x, float y, float z,
     double t = OMX_DEFAULT_MOVE_SEC)
@@ -102,7 +103,7 @@ inline void moveTCPAbs(
   runCalibratedTaskTrajectory(move_time);
 }
 
-// TCP 상대 위치 직선 이동 [m]
+// 현재 TCP 기준 상대 위치 직선 이동 [m]
 inline void moveTCPRel(
     float dx, float dy, float dz,
     double t = OMX_DEFAULT_MOVE_SEC)
@@ -115,6 +116,7 @@ inline void moveTCPRel(
   runCalibratedTaskTrajectory(move_time);
 }
 
+// Gripper open/close 명령
 inline void setGripper(bool open, double wait_sec = 1.0)
 {
   if (wait_sec < OMX_MIN_MOVE_SEC)
@@ -157,7 +159,7 @@ inline void keepHorizontal(double t = OMX_DEFAULT_MOVE_SEC)
   }, t);
 }
 
-// 그리퍼 절대 pitch [degree]
+// End-effector 절대 pitch [degree]
 inline void setPitch(
     double target_pitch_deg,
     double t = OMX_DEFAULT_PITCH_MOVE_SEC)
