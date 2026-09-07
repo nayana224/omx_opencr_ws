@@ -102,11 +102,49 @@ inline bool rawJointGoalIsSafe(const std::vector<robotis_manipulator::JointValue
   return true;
 }
 
+inline bool moveCalibratedJointRad(const std::vector<double>& calibrated_goal_rad, double move_time)
+{
+  if (calibrated_goal_rad.size() < 4 || move_time <= 0.0)
+  {
+    Serial.println("[ERROR] Invalid joint command.");
+    return false;
+  }
+
+  // 새 trajectory를 만들기 직전에 실제 ROBOTIS trajectory clock과 feedback을 갱신합니다.
+  // 학생 코드 사이에 delay()가 있어도 다음 명령이 중간 tick에서 시작하지 않게 합니다.
+  omx.processOpenManipulator(omxNowSec());
+
+  std::vector<robotis_manipulator::JointValue> calibrated_goal(4);
+  for (size_t i = 0; i < 4; ++i)
+  {
+    calibrated_goal[i].position = calibrated_goal_rad[i];
+    calibrated_goal[i].velocity = 0.0;
+    calibrated_goal[i].acceleration = 0.0;
+    calibrated_goal[i].effort = 0.0;
+  }
+
+  std::vector<robotis_manipulator::JointValue> raw_goal =
+      calibratedToRaw(calibrated_goal);
+
+  if (!rawJointGoalIsSafe(raw_goal))
+    return false;
+
+  omx.makeJointTrajectory(raw_goal, move_time);
+  runManipulator(move_time + OMX_MOTION_SETTLE_SEC);
+  return syncRobotState();
+}
+
 inline bool startCalibratedTaskTrajectory(
     const Eigen::Vector3d& goal_position,
     double move_time,
     bool relative)
 {
+  if (move_time <= 0.0)
+  {
+    Serial.println("[ERROR] TCP move time must be positive.");
+    return false;
+  }
+
   std::vector<robotis_manipulator::JointValue> calibrated_present;
   if (!syncRobotState(&calibrated_present))
     return false;
