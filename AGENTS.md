@@ -1,0 +1,56 @@
+# AGENTS.md
+
+## Project purpose
+
+이 저장소는 OpenCR에서 ROBOTIS OpenMANIPULATOR-X를 제어하는 교육/대회용 Arduino API를 제공합니다.
+학생은 ROBOTIS 내부 제어 루프, DYNAMIXEL 통신, radian 변환, FK/IK 구현을 직접 다루지 않고 한 줄 함수 호출로 기본 로봇팔 제어를 수행할 수 있어야 합니다.
+
+## Core design rules
+
+- 학생용 public API는 한 줄 호출을 우선합니다.
+- Joint 입력은 degree, Cartesian 위치는 meter, 시간은 second를 기본 단위로 사용합니다.
+- FK, IK, trajectory 생성은 가능한 한 ROBOTIS `OpenManipulator` / `RobotisManipulator` API를 사용합니다.
+- ROBOTIS가 제공하는 기능을 별도로 재구현하지 않습니다. Wrapper는 단위 변환, calibration, 상태 동기화, 안전 검사와 사용성 개선에 집중합니다.
+- `processOpenManipulator()`에는 부팅 이후 계속 증가하는 절대 시간을 전달합니다.
+- 학생용 API에서 DYNAMIXEL ID, raw actuator position, control-loop 호출을 노출하지 않습니다.
+
+## Calibration invariant
+
+이 로봇은 기구 조립/제로 오차 때문에 software joint offset을 사용할 수 있습니다.
+
+- calibration 값은 `omx_config.h` 한 곳에서 관리합니다.
+- 개별 public motion 함수에 임의의 magic offset을 추가하지 않습니다.
+- 학생이 사용하는 calibrated joint 좌표와 actuator가 사용하는 raw joint 좌표의 변환은 내부 helper를 통해서만 수행합니다.
+- FK/IK와 TCP 읽기도 동일한 calibrated joint 좌표를 기준으로 계산해야 합니다.
+- DYNAMIXEL Homing Offset을 필수 전제로 만들지 않습니다.
+
+## Public API invariants
+
+기존 학생 코드의 다음 호출 형태는 특별한 이유 없이 깨뜨리지 않습니다.
+
+```cpp
+moveHome();
+moveJointAbs(0, 20, -20, 0);
+moveJointRel(0, 10, 0, 0);
+moveTCPAbs(0.20, 0.00, 0.10);
+moveTCPRel(0.00, 0.00, 0.03);
+keepHorizontal();
+setPitch(15);
+setGripper(true);
+readJoint();
+readTCP();
+```
+
+필요한 새 API는 추가할 수 있지만 동일 동작의 alias를 불필요하게 늘리지 않습니다.
+
+## Hardware I/O
+
+- `LED_PIN`과 `SW_PIN`은 OpenCR 내장 LED/SW가 아니라 대회용 외부 보드 GPIO입니다.
+- 핀 번호를 OpenCR 내장 LED/SW 번호로 임의 변경하지 않습니다.
+
+## Safety and scope
+
+- Joint limit과 IK 실패를 가능한 한 학생이 이해할 수 있는 `Serial` 메시지로 노출합니다.
+- 통신/상태 읽기 실패 시 0 값을 정상 상태처럼 사용해 후속 motion을 만들지 않습니다.
+- 안전 관련 변경은 학생 코드 복잡도를 증가시키기보다 내부 wrapper에서 처리합니다.
+- 큰 구조 변경은 public API 호환성과 실물 OpenMANIPULATOR-X 동작을 우선 검토합니다.
