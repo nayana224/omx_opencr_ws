@@ -1,7 +1,7 @@
 #ifndef UTILS_HPP
 #define UTILS_HPP
 
-#include <Eigen/Dense>
+#include <Eigen.h>
 #include <math.h>
 #include <vector>
 
