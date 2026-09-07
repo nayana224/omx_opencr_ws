@@ -3,20 +3,50 @@
 
 #include <open_manipulator_libs.h>
 #include <Eigen/Dense>
+#include <math.h>
 #include <vector>
 
 #include "omx_config.h"
 
-// 실제 OpenCR/DYNAMIXEL을 제어하는 ROBOTIS 객체.
-OpenManipulator omx;
-
-// Software calibration이 적용된 joint 좌표로 FK/IK를 계산하는 ROBOTIS 모델.
-// 실제 actuator에는 연결하지 않습니다.
-OpenManipulator omx_model;
+OpenManipulator omx;        // 실제 OpenCR/DYNAMIXEL 제어
+OpenManipulator omx_model;  // 보정 좌표용 ROBOTIS FK/IK 모델
 
 inline double omxNowSec()
 {
   return millis() / 1000.0;
+}
+
+inline double motionSpeedScale()
+{
+  if (OMX_MOTION_SPEED_SCALE < 0.1)
+    return 0.1;
+  if (OMX_MOTION_SPEED_SCALE > 1.0)
+    return 1.0;
+  return OMX_MOTION_SPEED_SCALE;
+}
+
+inline double resolveMoveTime(double requested_sec, double distance, double max_speed)
+{
+  double move_time = requested_sec;
+  if (move_time < OMX_MIN_MOVE_SEC)
+    move_time = OMX_MIN_MOVE_SEC;
+
+  const double scaled_speed = max_speed * motionSpeedScale();
+  if (scaled_speed > 0.0)
+  {
+    const double required_sec = distance / scaled_speed;
+    if (required_sec > move_time)
+      move_time = required_sec;
+  }
+
+  if (move_time > requested_sec + 0.001)
+  {
+    Serial.print("[SAFE] Move time adjusted to ");
+    Serial.print(move_time, 2);
+    Serial.println(" sec.");
+  }
+
+  return move_time;
 }
 
 inline std::vector<robotis_manipulator::JointValue> rawToCalibrated(
@@ -40,33 +70,33 @@ inline std::vector<robotis_manipulator::JointValue> calibratedToRaw(
   for (size_t i = 0; i < count; ++i)
     raw[i].position = calibrated[i].position + OMX_JOINT_ZERO_OFFSET_RAD[i];
 
-  // offset은 상수이므로 velocity/acceleration은 그대로 사용합니다.
   return raw;
 }
 
-// 실제 actuator 상태를 읽고, 같은 상태를 calibrated kinematics model에 반영합니다.
-inline bool syncRobotState(std::vector<robotis_manipulator::JointValue>* calibrated_out = nullptr)
+inline bool syncRobotState(
+    std::vector<robotis_manipulator::JointValue>* calibrated_out = nullptr,
+    std::vector<robotis_manipulator::JointValue>* raw_out = nullptr)
 {
   std::vector<robotis_manipulator::JointValue> raw = omx.receiveAllJointActuatorValue();
 
   if (raw.size() < 4)
   {
-    Serial.println("[ERROR] OpenManipulator joint feedback unavailable.");
+    Serial.println("[ERROR] Joint feedback unavailable.");
     return false;
   }
 
   std::vector<robotis_manipulator::JointValue> calibrated = rawToCalibrated(raw);
-
   omx_model.getManipulator()->setAllActiveJointValue(calibrated);
   omx_model.solveForwardKinematics();
 
   if (calibrated_out != nullptr)
     *calibrated_out = calibrated;
+  if (raw_out != nullptr)
+    *raw_out = raw;
 
   return true;
 }
 
-// ROBOTIS control loop은 부팅 이후 계속 증가하는 절대 시간을 받아야 합니다.
 inline void runManipulator(double sec)
 {
   if (sec <= 0.0)
@@ -81,11 +111,32 @@ inline void runManipulator(double sec)
     delay(OMX_CONTROL_PERIOD_MS);
   }
 
-  // 마지막 상태를 한 번 더 반영해 readJoint/readTCP가 최신 상태를 보도록 합니다.
   omx.processOpenManipulator(omxNowSec());
 }
 
-inline bool rawJointGoalIsSafe(const std::vector<robotis_manipulator::JointValue>& raw_goal)
+inline bool calibratedJointGoalIsSafe(
+    const std::vector<robotis_manipulator::JointValue>& calibrated_goal)
+{
+  if (calibrated_goal.size() < 4)
+    return false;
+
+  for (size_t i = 0; i < 4; ++i)
+  {
+    const double deg = fabs(calibrated_goal[i].position * OMX_RAD_TO_DEG);
+    if (deg > OMX_STUDENT_JOINT_LIMIT_DEG)
+    {
+      Serial.print("[ERROR] J");
+      Serial.print(i + 1);
+      Serial.println(" exceeds student safety range (-90 ~ +90 deg).");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+inline bool rawJointGoalIsSafe(
+    const std::vector<robotis_manipulator::JointValue>& raw_goal)
 {
   if (raw_goal.size() < 4)
     return false;
@@ -95,44 +146,47 @@ inline bool rawJointGoalIsSafe(const std::vector<robotis_manipulator::JointValue
 
   if (!omx.checkJointLimit(names, raw_goal))
   {
-    Serial.println("[ERROR] Joint goal exceeds OpenManipulator-X limit.");
+    Serial.println("[ERROR] Goal exceeds ROBOTIS joint limit.");
     return false;
   }
 
   return true;
 }
 
-inline bool moveCalibratedJointRad(const std::vector<double>& calibrated_goal_rad, double move_time)
+inline bool moveCalibratedJointRad(
+    const std::vector<double>& calibrated_goal_rad,
+    double requested_time)
 {
-  if (calibrated_goal_rad.size() < 4 || move_time <= 0.0)
+  if (calibrated_goal_rad.size() < 4)
   {
     Serial.println("[ERROR] Invalid joint command.");
     return false;
   }
 
-  // 새 trajectory를 만들기 직전에 ROBOTIS clock을 현재 절대시간으로 갱신합니다.
-  omx.processOpenManipulator(omxNowSec());
-
-  // calibrated TCP trajectory를 low-level actuator 전송으로 수행한 뒤에도
-  // 다음 joint trajectory가 stale trajectory state가 아닌 실제 feedback에서 시작하도록
-  // 현재 raw joint를 명시적인 present_joint_value로 넘깁니다.
-  std::vector<robotis_manipulator::JointValue> raw_present =
-      omx.receiveAllJointActuatorValue();
-
-  if (raw_present.size() < 4)
-  {
-    Serial.println("[ERROR] Cannot start joint trajectory without joint feedback.");
+  std::vector<robotis_manipulator::JointValue> calibrated_present;
+  std::vector<robotis_manipulator::JointValue> raw_present;
+  if (!syncRobotState(&calibrated_present, &raw_present))
     return false;
-  }
 
+  double max_delta_deg = 0.0;
   std::vector<robotis_manipulator::JointValue> calibrated_goal(4);
+
   for (size_t i = 0; i < 4; ++i)
   {
     calibrated_goal[i].position = calibrated_goal_rad[i];
     calibrated_goal[i].velocity = 0.0;
     calibrated_goal[i].acceleration = 0.0;
     calibrated_goal[i].effort = 0.0;
+
+    const double delta_deg =
+        fabs((calibrated_goal[i].position - calibrated_present[i].position)
+             * OMX_RAD_TO_DEG);
+    if (delta_deg > max_delta_deg)
+      max_delta_deg = delta_deg;
   }
+
+  if (!calibratedJointGoalIsSafe(calibrated_goal))
+    return false;
 
   std::vector<robotis_manipulator::JointValue> raw_goal =
       calibratedToRaw(calibrated_goal);
@@ -140,47 +194,52 @@ inline bool moveCalibratedJointRad(const std::vector<double>& calibrated_goal_ra
   if (!rawJointGoalIsSafe(raw_goal))
     return false;
 
+  const double move_time = resolveMoveTime(
+      requested_time,
+      max_delta_deg,
+      OMX_MAX_JOINT_SPEED_DEG_S);
+
+  omx.processOpenManipulator(omxNowSec());
   omx.makeJointTrajectory(raw_goal, move_time, raw_present);
   runManipulator(move_time + OMX_MOTION_SETTLE_SEC);
+
   return syncRobotState();
 }
 
-inline bool startCalibratedTaskTrajectory(
-    const Eigen::Vector3d& goal_position,
-    double move_time,
-    bool relative)
+inline bool startCalibratedLinearTaskTrajectory(
+    const Eigen::Vector3d& target,
+    double requested_time,
+    bool relative,
+    double* actual_move_time)
 {
-  if (move_time <= 0.0)
-  {
-    Serial.println("[ERROR] TCP move time must be positive.");
-    return false;
-  }
-
   std::vector<robotis_manipulator::JointValue> calibrated_present;
   if (!syncRobotState(&calibrated_present))
     return false;
 
-  // Shadow model의 trajectory storage를 최초 한 번 ROBOTIS 모델로 초기화하고,
-  // 현재 절대 시간을 trajectory start time의 기준으로 맞춥니다.
-  omx_model.getJointGoalValueFromTrajectory(omxNowSec());
-  omx_model.getTrajectory()->setPresentTime(omxNowSec());
+  const Eigen::Vector3d current =
+      omx_model.getKinematicPose("gripper").position;
+  const Eigen::Vector3d goal = relative ? current + target : target;
+  const double distance = (goal - current).norm();
 
-  if (relative)
-  {
-    omx_model.makeTaskTrajectoryFromPresentPose(
-        "gripper", goal_position, move_time, calibrated_present);
-  }
-  else
-  {
-    omx_model.makeTaskTrajectory(
-        "gripper", goal_position, move_time, calibrated_present);
-  }
+  const double move_time = resolveMoveTime(
+      requested_time,
+      distance,
+      OMX_MAX_TCP_SPEED_M_S);
+
+  const double now = omxNowSec();
+  omx_model.getJointGoalValueFromTrajectory(now);
+  omx_model.getTrajectory()->setPresentTime(now);
+
+  // Vector3d task trajectory는 현재 orientation을 유지한 채 XYZ를 직선 보간합니다.
+  omx_model.makeTaskTrajectory(
+      "gripper", goal, move_time, calibrated_present);
+
+  if (actual_move_time != nullptr)
+    *actual_move_time = move_time;
 
   return true;
 }
 
-// Shadow ROBOTIS model이 만든 calibrated task trajectory를 실제 raw actuator 좌표로
-// 변환해 전송합니다. FK/IK와 minimum-jerk trajectory는 ROBOTIS 구현을 그대로 사용합니다.
 inline bool runCalibratedTaskTrajectory(double move_time)
 {
   if (move_time <= 0.0)
@@ -198,6 +257,9 @@ inline bool runCalibratedTaskTrajectory(double move_time)
 
     if (!calibrated_goal.empty())
     {
+      if (!calibratedJointGoalIsSafe(calibrated_goal))
+        return false;
+
       std::vector<robotis_manipulator::JointValue> raw_goal =
           calibratedToRaw(calibrated_goal);
 
@@ -206,7 +268,7 @@ inline bool runCalibratedTaskTrajectory(double move_time)
 
       if (!omx.sendAllJointActuatorValue(raw_goal))
       {
-        Serial.println("[ERROR] Failed to send OpenManipulator joint command.");
+        Serial.println("[ERROR] Failed to send joint command.");
         return false;
       }
     }
@@ -215,12 +277,11 @@ inline bool runCalibratedTaskTrajectory(double move_time)
       const double elapsed = (millis() - start_ms) / 1000.0;
       if (elapsed + 0.05 < move_time)
       {
-        Serial.println("[ERROR] TCP trajectory stopped early. Check IK/workspace.");
+        Serial.println("[ERROR] TCP trajectory stopped. Check IK/workspace.");
         return false;
       }
     }
 
-    // 공식 processOpenManipulator와 동일하게 실제 joint feedback을 주기적으로 갱신합니다.
     omx.receiveAllJointActuatorValue();
     delay(OMX_CONTROL_PERIOD_MS);
   }
@@ -233,9 +294,9 @@ inline bool initRobotRuntime()
   omx.initOpenManipulator(true);
   omx_model.initOpenManipulator(false);
 
-  // 두 ROBOTIS trajectory 객체 모두 절대 시간 기준을 초기화합니다.
-  omx.processOpenManipulator(omxNowSec());
-  omx_model.getJointGoalValueFromTrajectory(omxNowSec());
+  const double now = omxNowSec();
+  omx.processOpenManipulator(now);
+  omx_model.getJointGoalValueFromTrajectory(now);
 
   return syncRobotState();
 }
