@@ -1,125 +1,218 @@
-# OpenManipulator-X OpenCR Manual Study Sketch
+# OpenManipulator-X OpenCR Student API
 
-ROBOTIS OpenManipulator-X를 OpenCR 보드에서 직접 움직이며 정기구학, 역기구학, TCP 이동, 조인트 이동을 실습하기 위한 Arduino 스케치입니다. 복잡한 예제 코드를 매번 작성하지 않아도 `utils.h`에 정의된 사용자 함수만 호출해서 로봇팔의 자세와 위치 변화를 관찰할 수 있도록 구성했습니다.
+ROBOTIS OpenMANIPULATOR-X를 OpenCR에서 직접 제어하면서 C/C++ 기초 문법과 로봇팔 제어를 실습하기 위한 교육/대회용 Arduino 코드입니다.
 
-## 구성
+학생은 DYNAMIXEL 통신, radian 변환, FK/IK 구현, OpenManipulator control loop를 직접 작성하지 않고 `moveJointAbs(...)`, `moveTCPRel(...)` 같은 한 줄 함수로 로봇을 움직일 수 있습니다.
+
+내부에서는 가능한 한 ROBOTIS의 `OpenManipulator` / `RobotisManipulator` API와 trajectory, FK, IK 구현을 그대로 사용합니다.
+
+## 파일 구성
 
 ```text
 .
-├── Omx_Manual.ino   # Arduino 메인 스케치
-├── utils.h          # OpenManipulator-X 제어용 사용자 함수 모음
+├── Omx_Manual.ino   # 학생이 주로 수정하는 Arduino 스케치
+├── utils.h          # 학생용 public API
+├── omx_internal.h   # 상태 동기화, trajectory, calibration 내부 처리
+├── omx_config.h     # calibration / control / 외부 GPIO 설정
+├── AGENTS.md        # 저장소 개발 원칙
 └── README.md
 ```
 
+학생 실습에서는 보통 `Omx_Manual.ino`와 아래 API 표만 보면 됩니다.
+
 ## 준비물
 
-- OpenManipulator-X
-- OpenCR 보드
+- ROBOTIS OpenMANIPULATOR-X
+- OpenCR
 - DYNAMIXEL 전원 및 통신 연결
 - Arduino IDE 또는 Arduino CLI
 - ROBOTIS OpenCR 보드 패키지
-- `open_manipulator_libs` 라이브러리
-- `Eigen` 라이브러리
+- `open_manipulator_libs`
+- Eigen
+- 대회용 외부 LED / Switch 보드(사용하는 경우)
 
-보드와 라이브러리 설치는 ROBOTIS OpenManipulator-X/OpenCR Arduino 환경 설정을 먼저 완료한 뒤 진행하세요.
-
-## 업로드 방법
+## 업로드
 
 1. Arduino IDE에서 `Omx_Manual.ino`를 엽니다.
-2. 보드를 `OpenCR Board`로 선택합니다.
-3. OpenCR이 연결된 포트를 선택합니다.
-4. 스케치를 업로드합니다.
-5. 시리얼 모니터를 `115200 baud`로 열어 상태 메시지를 확인합니다.
+2. Board를 `OpenCR Board`로 선택합니다.
+3. OpenCR 포트를 선택합니다.
+4. 업로드합니다.
+5. Serial Monitor를 `115200 baud`로 엽니다.
 
-업로드 후 기본 `loop()`는 비어 있습니다. 원하는 함수 예제를 `loop()` 안에서 하나씩 주석 해제하거나 직접 호출하면서 실습하면 됩니다.
+정상적으로 joint feedback까지 읽으면 다음과 비슷한 메시지가 출력됩니다.
 
-## 기본 사용 예시
+```text
+[OK] OpenManipulator initialized and joint feedback synced.
+==== OpenManipulator Started! ====
+```
+
+## 가장 간단한 사용 예
 
 ```cpp
 void loop()
 {
   moveHome();
-  readJoint();
-  readTCP();
-
-  moveJointAbs(0, 20, -20, 0, 2.0);
-  readTCP();
-
-  moveTCPRel(0.00, 0.00, 0.03, 1.5);
-  keepHorizontal();
+  moveJointAbs(0, 20, -20, 0);
+  moveTCPRel(0.00, 0.00, 0.03);
+  closeGripper();
 
   while (1);
 }
 ```
 
-반복 실행을 막고 싶다면 예시처럼 마지막에 `while (1);`을 넣어 한 번만 실행되도록 하세요.
+모든 motion 함수 안에서 필요한 ROBOTIS control loop가 실행되므로 학생이 `processOpenManipulator()`를 직접 호출할 필요가 없습니다.
 
-## 사용자 함수
-
-### 초기화와 내부 루프
-
-| 함수 | 설명 |
-| --- | --- |
-| `initManipulator()` | OpenManipulator-X를 초기화합니다. `setup()`에서 호출됩니다. |
-| `runManipulator(sec)` | 지정한 시간 동안 내부 제어 루프를 실행합니다. 이동 함수 내부에서 자동 호출됩니다. |
-| `setPins()` | OpenCR의 LED/SW 핀을 설정합니다. |
+## 학생용 API
 
 ### 상태 읽기
 
 | 함수 | 반환값 | 설명 |
 | --- | --- | --- |
-| `readJoint()` | `std::vector<double>` | 현재 J1~J4 조인트 각도를 degree 단위로 출력하고 반환합니다. |
-| `readTCP()` | `Eigen::Vector3d` | 현재 gripper TCP의 `x, y, z` 위치를 meter 단위로 출력하고 반환합니다. |
+| `readJoint()` | `std::vector<double>` | 현재 J1~J4를 보정된 degree 좌표로 출력/반환 |
+| `readTCP()` | `Eigen::Vector3d` | 현재 gripper TCP의 `x, y, z`를 meter로 출력/반환 |
 
-### 조인트 공간 이동
+### Joint 제어
 
 | 함수 | 단위 | 설명 |
 | --- | --- | --- |
-| `moveHome(t)` | sec | 기본 홈 자세로 이동합니다. |
-| `moveJointAbs(j1, j2, j3, j4, t)` | degree, sec | J1~J4 목표 각도로 절대 이동합니다. |
-| `moveJointRel(dj1, dj2, dj3, dj4, t)` | degree, sec | 현재 각도 기준으로 상대 이동합니다. |
+| `moveHome(t)` | sec | 학생 기준 `[0, 0, 0, 0] deg` 자세로 이동 |
+| `moveJointAbs(j1, j2, j3, j4, t)` | degree, sec | 절대 joint 각도로 이동 |
+| `moveJointRel(dj1, dj2, dj3, dj4, t)` | degree, sec | 현재 자세에서 상대 joint 각도만큼 이동 |
 
-예시:
+예:
 
 ```cpp
 moveJointAbs(0, 30, -30, 0, 2.0);
 moveJointRel(0, -10, 10, 0, 1.5);
 ```
 
-### 작업 공간 이동
+### Cartesian / TCP 제어
 
 | 함수 | 단위 | 설명 |
 | --- | --- | --- |
-| `moveTCPAbs(x, y, z, t)` | meter, sec | gripper TCP를 목표 좌표로 이동합니다. OpenManipulator 라이브러리의 역기구학을 사용합니다. |
-| `moveTCPRel(dx, dy, dz, t)` | meter, sec | 현재 TCP 위치 기준으로 상대 이동합니다. |
+| `moveTCPAbs(x, y, z, t)` | meter, sec | TCP를 절대 XYZ 위치로 이동 |
+| `moveTCPRel(dx, dy, dz, t)` | meter, sec | 현재 TCP에서 상대 XYZ만큼 이동 |
 
-예시:
+`moveTCPAbs()`와 `moveTCPRel()`은 ROBOTIS의 task trajectory와 OpenMANIPULATOR-X IK를 사용합니다.
+
+예:
 
 ```cpp
 moveTCPAbs(0.20, 0.00, 0.10, 2.0);
-moveTCPRel(0.00, 0.03, 0.00, 1.5);
+moveTCPRel(0.00, 0.00, 0.03, 1.5);
 ```
 
-### 자세와 그리퍼
+### Pitch / Gripper
 
 | 함수 | 설명 |
 | --- | --- |
-| `keepHorizontal(t)` | J2, J3, J4 관계를 이용해 TCP pitch가 수평에 가깝도록 보정합니다. |
-| `setPitch(target_pitch_deg, t)` | 원하는 pitch 각도를 degree 단위로 지정합니다. |
-| `setGripper(open, t)` | `true`면 열기, `false`면 닫기 명령을 보냅니다. |
+| `keepHorizontal(t)` | 현재 J1~J3를 유지하면서 end-effector를 수평에 가깝게 맞춤 |
+| `setPitch(target_pitch_deg, t)` | 목표 pitch를 degree로 지정 |
+| `setGripper(true)` | gripper 열기 |
+| `setGripper(false)` | gripper 닫기 |
+| `openGripper()` | gripper 열기 |
+| `closeGripper()` | gripper 닫기 |
 
-### OpenCR LED/SW
+초급 학생에게는 `openGripper()` / `closeGripper()`가 직관적이고, 조건문 실습에서는 `setGripper(bool)`를 사용할 수 있습니다.
+
+```cpp
+if (SW1())
+{
+  setGripper(true);
+}
+```
+
+### 외부 LED / Switch 보드
 
 | 함수 | 설명 |
 | --- | --- |
-| `setLEDs(value)` | 하위 4비트 값으로 LED 4개를 제어합니다. 예: `setLEDs(0b0101);` |
-| `SW1()`, `SW2()`, `SW3()`, `SW4()` | OpenCR 스위치 입력값을 읽습니다. |
+| `setLEDs(value)` | 하위 4비트로 외부 LED 4개 제어 |
+| `SW1()` ~ `SW4()` | 외부 switch 상태 읽기 |
 
-## 정기구학/역기구학 실습 흐름
+현재 GPIO는 대회용 외부 보드를 위한 설정입니다. OpenCR 내장 LED/SW 핀으로 변경하지 않습니다.
 
-### 정기구학 관찰
+## Software calibration
 
-조인트 각도를 바꾼 뒤 TCP 좌표가 어떻게 변하는지 확인합니다.
+이 프로젝트에서는 DYNAMIXEL Homing Offset을 필수로 사용하지 않습니다.
+
+실물 로봇의 기구 조립/제로 오차를 software calibration으로 보정합니다.
+
+현재 설정은 `omx_config.h`에 있습니다.
+
+```cpp
+constexpr double OMX_JOINT_ZERO_OFFSET_RAD[4] = {
+  0.0,
+  -4.8 * OMX_DEG_TO_RAD,
+  -4.8 * OMX_DEG_TO_RAD,
+  0.0
+};
+```
+
+좌표 관계는 다음과 같습니다.
+
+```text
+actual actuator(raw) = student/calibrated joint + zero offset
+```
+
+따라서 학생이 다음을 호출하면:
+
+```cpp
+moveJointAbs(0, 0, 0, 0);
+```
+
+내부에서는 실물 로봇의 오차를 보정한 actuator 목표가 자동으로 생성됩니다.
+
+### 왜 `moveJointAbs()`에 단순히 offset만 더하지 않는가?
+
+Joint 명령에만 offset을 더하면 ROBOTIS FK/IK가 보는 joint 좌표와 학생이 보는 joint 좌표가 달라집니다.
+
+이 저장소는 두 개의 ROBOTIS `OpenManipulator` 객체를 사용합니다.
+
+```text
+학생 joint/TCP 좌표
+        │
+        ▼
+calibrated OpenManipulator model
+  ├─ ROBOTIS FK
+  ├─ ROBOTIS IK
+  └─ ROBOTIS task trajectory
+        │
+        ▼
+software calibration 변환
+        │
+        ▼
+actual OpenManipulator / DYNAMIXEL
+```
+
+즉 FK/IK를 새로 구현하는 것이 아니라 ROBOTIS 모델을 하나 더 사용해 calibration 좌표계를 일관되게 유지합니다.
+
+### Pitch correction
+
+`OMX_PITCH_CORRECTION_RAD`는 joint zero offset과 별개의 실물 end-effector 자세 보정값입니다.
+
+```cpp
+constexpr double OMX_PITCH_CORRECTION_RAD = -0.14;
+```
+
+`keepHorizontal()`과 `setPitch()`에서만 사용합니다.
+
+로봇을 교체하거나 기구를 다시 조립했다면 이 값과 joint offset은 실제 장비를 보고 다시 확인해야 합니다.
+
+## ROBOTIS control loop 처리
+
+ROBOTIS `processOpenManipulator()`에는 부팅 이후 계속 증가하는 시간이 전달되어야 합니다.
+
+내부 구현은 다음 방식으로 동작합니다.
+
+```cpp
+omx.processOpenManipulator(millis() / 1000.0);
+```
+
+학생은 이를 직접 작성하지 않습니다.
+
+각 motion 함수는 명령 직전에 trajectory clock과 현재 joint feedback을 갱신합니다. 따라서 명령 사이에 `delay()`가 있어도 다음 trajectory가 이전 시간값 때문에 중간부터 시작하지 않도록 구성했습니다.
+
+## 정기구학 실습
 
 ```cpp
 moveHome();
@@ -130,53 +223,60 @@ readJoint();
 readTCP();
 ```
 
-### 역기구학 관찰
+관찰 포인트:
 
-TCP 목표 좌표를 지정한 뒤 로봇이 어떤 조인트 각도로 이동했는지 확인합니다.
+```text
+Joint angle 변경
+        ↓
+ROBOTIS Forward Kinematics
+        ↓
+TCP XYZ 변경
+```
+
+## 역기구학 실습
 
 ```cpp
 moveHome();
-
 moveTCPAbs(0.18, 0.02, 0.10, 2.0);
-readTCP();
 readJoint();
-```
-
-### 상대 이동 관찰
-
-현재 위치에서 조금씩 이동시키며 좌표계 방향을 익힙니다.
-
-```cpp
-moveHome();
-moveTCPRel(0.02, 0.00, 0.00, 1.5);
-moveTCPRel(0.00, 0.02, 0.00, 1.5);
-moveTCPRel(0.00, 0.00, 0.02, 1.5);
 readTCP();
 ```
 
-## 단위와 보정값
+관찰 포인트:
 
-- 조인트 입력값: degree
-- TCP 입력값: meter
+```text
+TCP XYZ 목표
+      ↓
+ROBOTIS Inverse Kinematics
+      ↓
+J1~J4 목표 생성
+```
+
+## 단위
+
+- Joint 입력/출력: degree
+- TCP: meter
 - 이동 시간: second
-- 내부 OpenManipulator 라이브러리 명령: radian 기반
-- `moveJointAbs()`와 `moveHome()`은 J2/J3에 `-4.8 deg` 수동 보정값을 적용합니다.
-- `keepHorizontal()`과 `setPitch()`는 J4 계산에 `-0.14 rad` pitch 보정값을 적용합니다.
+- ROBOTIS 내부 계산: radian
 
-로봇팔 조립 상태나 캘리브레이션에 따라 보정값은 달라질 수 있습니다. 실제 TCP가 수평에서 벗어나면 `utils.h`의 `OMX_JOINT_OFFSET_DEG`, `OMX_PITCH_OFFSET_RAD` 값을 조금씩 조정하세요.
+학생 API 경계에서 자동 변환합니다.
 
 ## 안전 주의
 
-- 처음 실습할 때는 항상 넓은 공간에서 낮은 속도, 긴 이동 시간으로 테스트하세요.
-- `moveTCPAbs()`는 도달 불가능한 좌표를 넣으면 이동하지 않거나 예상과 다른 자세가 나올 수 있습니다.
-- 전원 인가 직후 로봇팔 주변에 손이나 물체가 없는지 확인하세요.
-- 좌표와 각도는 작은 값부터 바꾸며 관찰하세요.
-- 그리퍼가 물체를 잡고 있을 때는 충돌과 케이블 꼬임을 확인하세요.
+- 처음에는 넓은 공간에서 긴 이동시간으로 테스트하세요.
+- TCP 좌표는 작은 값부터 변경하세요.
+- 도달할 수 없는 TCP 좌표를 입력하면 Serial에 IK/workspace 오류가 출력될 수 있습니다.
+- software calibration 때문에 실제 actuator limit과 학생 좌표 limit에는 약간의 차이가 있을 수 있으며, 내부에서 raw joint limit을 다시 검사합니다.
+- 그리퍼 주변과 케이블 간섭을 확인하세요.
 
-## 코드 점검 메모
+## 개발 원칙
 
-- `utils.h`는 사용자가 바로 호출하기 쉬운 래퍼 함수 중심으로 잘 분리되어 있습니다.
-- 각 이동 함수가 내부에서 `runManipulator()`를 호출하므로, 사용자는 별도의 제어 루프를 직접 작성하지 않아도 됩니다.
-- 각도/좌표 단위를 함수 이름과 README에 명시해 실습 중 혼동을 줄였습니다.
-- Arduino 코어와 이름이 겹칠 수 있는 단위 변환 상수에는 `OMX_` 접두어를 붙였습니다.
-- OpenCR 보드/ROBOTIS 라이브러리가 필요한 프로젝트라 이 환경이 없는 PC에서는 일반 C++ 컴파일로 검증할 수 없습니다.
+저장소를 수정할 때는 `AGENTS.md`를 먼저 확인하세요.
+
+핵심 원칙은 다음과 같습니다.
+
+- 학생 API는 간단하게 유지
+- calibration은 한 곳에서 관리
+- FK/IK/trajectory는 ROBOTIS 구현 우선
+- 내부 control loop를 학생에게 노출하지 않음
+- 외부 LED/SW GPIO 설정 유지
