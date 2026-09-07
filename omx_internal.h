@@ -8,8 +8,8 @@
 
 #include "omx_config.h"
 
-OpenManipulator omx;        // 실제 OpenCR/DYNAMIXEL 제어
-OpenManipulator omx_model;  // 보정 좌표용 ROBOTIS FK/IK 모델
+OpenManipulator omx;        // Hardware control model
+OpenManipulator omx_model;  // Calibrated FK/IK model
 
 inline double omxNowSec()
 {
@@ -25,6 +25,7 @@ inline double motionSpeedScale()
   return OMX_MOTION_SPEED_SCALE;
 }
 
+// Requested time is extended when required by the configured speed limit.
 inline double resolveMoveTime(double requested_sec, double distance, double max_speed)
 {
   double move_time = requested_sec;
@@ -49,6 +50,7 @@ inline double resolveMoveTime(double requested_sec, double distance, double max_
   return move_time;
 }
 
+// Raw actuator coordinates -> calibrated student coordinates
 inline std::vector<robotis_manipulator::JointValue> rawToCalibrated(
     const std::vector<robotis_manipulator::JointValue>& raw)
 {
@@ -61,6 +63,7 @@ inline std::vector<robotis_manipulator::JointValue> rawToCalibrated(
   return calibrated;
 }
 
+// Calibrated student coordinates -> raw actuator coordinates
 inline std::vector<robotis_manipulator::JointValue> calibratedToRaw(
     const std::vector<robotis_manipulator::JointValue>& calibrated)
 {
@@ -73,6 +76,7 @@ inline std::vector<robotis_manipulator::JointValue> calibratedToRaw(
   return raw;
 }
 
+// Synchronize actuator feedback and calibrated FK state.
 inline bool syncRobotState(
     std::vector<robotis_manipulator::JointValue>* calibrated_out = nullptr,
     std::vector<robotis_manipulator::JointValue>* raw_out = nullptr)
@@ -97,6 +101,7 @@ inline bool syncRobotState(
   return true;
 }
 
+// Execute the ROBOTIS control loop using absolute uptime.
 inline void runManipulator(double sec)
 {
   if (sec <= 0.0)
@@ -114,6 +119,7 @@ inline void runManipulator(double sec)
   omx.processOpenManipulator(omxNowSec());
 }
 
+// Validate calibrated joint commands against the competition safety range.
 inline bool calibratedJointGoalIsSafe(
     const std::vector<robotis_manipulator::JointValue>& calibrated_goal)
 {
@@ -135,6 +141,7 @@ inline bool calibratedJointGoalIsSafe(
   return true;
 }
 
+// Validate raw joint commands against the ROBOTIS model limits.
 inline bool rawJointGoalIsSafe(
     const std::vector<robotis_manipulator::JointValue>& raw_goal)
 {
@@ -153,6 +160,7 @@ inline bool rawJointGoalIsSafe(
   return true;
 }
 
+// Joint trajectory in calibrated coordinates [rad]
 inline bool moveCalibratedJointRad(
     const std::vector<double>& calibrated_goal_rad,
     double requested_time)
@@ -206,6 +214,7 @@ inline bool moveCalibratedJointRad(
   return syncRobotState();
 }
 
+// Create a Cartesian linear trajectory while preserving tool orientation.
 inline bool startCalibratedLinearTaskTrajectory(
     const Eigen::Vector3d& target,
     double requested_time,
@@ -233,7 +242,6 @@ inline bool startCalibratedLinearTaskTrajectory(
   omx_model.getJointGoalValueFromTrajectory(now);
   omx_model.getTrajectory()->setPresentTime(now);
 
-  // Vector3d task trajectory는 현재 orientation을 유지한 채 XYZ를 직선 보간합니다.
   omx_model.makeTaskTrajectory(
       "gripper", goal, move_time, calibrated_present);
 
@@ -243,6 +251,7 @@ inline bool startCalibratedLinearTaskTrajectory(
   return true;
 }
 
+// Execute calibrated task-space trajectory on the hardware model.
 inline bool runCalibratedTaskTrajectory(double move_time)
 {
   if (move_time <= 0.0)
