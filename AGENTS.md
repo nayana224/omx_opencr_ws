@@ -23,7 +23,9 @@
 
 ## README documentation rules
 
-- README 첫 부분은 처음 보는 학생이 `Omx_Manual.ino`의 `loop()`를 바로 수정할 수 있도록 작성합니다.
+- README는 `Setup`, `Quick Start`, `API`, `Motion`, `Safety`, `Examples`, `Developer Notes`처럼 짧고 중립적인 섹션명을 우선합니다.
+- 유아적이거나 지나치게 친절한 표현보다 기술 문서에 가까운 간결한 톤을 사용합니다.
+- 첫 부분은 `Omx_Manual.ino`의 `loop()`를 바로 수정할 수 있도록 최소 사용법과 단위를 보여줍니다.
 - 학생에게 필요한 사용법, 단위, API, 간단 예제, 안전 규칙을 먼저 배치합니다.
 - calibration, shadow model, runtime 같은 내부 구현 설명은 학생용 사용법 뒤의 운영자/개발자 영역에 둡니다.
 - 같은 내용을 여러 절에서 반복하지 않고 표와 짧은 예제를 우선합니다.
