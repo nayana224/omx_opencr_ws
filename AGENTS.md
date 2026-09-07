@@ -21,14 +21,22 @@
 - 학생용 API에서 DYNAMIXEL ID, raw actuator position, control-loop 호출을 노출하지 않습니다.
 - 주석은 필요한 부분에만 짧고 명확한 한글로 작성합니다.
 
+## README documentation rules
+
+- README 첫 부분은 처음 보는 학생이 `Omx_Manual.ino`의 `loop()`를 바로 수정할 수 있도록 작성합니다.
+- 학생에게 필요한 사용법, 단위, API, 간단 예제, 안전 규칙을 먼저 배치합니다.
+- calibration, shadow model, runtime 같은 내부 구현 설명은 학생용 사용법 뒤의 운영자/개발자 영역에 둡니다.
+- 같은 내용을 여러 절에서 반복하지 않고 표와 짧은 예제를 우선합니다.
+- Absolute/Relative, Joint/TCP 등 처음 접할 수 있는 용어는 한 문장으로 의미를 설명합니다.
+
 ## Motion invariants
 
 - TCP 절대/상대 이동은 task-space trajectory를 사용해 직선 경로로 이동합니다.
 - TCP 이동 중에는 현재 end-effector orientation을 유지합니다.
 - Joint와 TCP는 동일한 global speed scale을 사용합니다.
 - Joint와 TCP는 단위가 다르므로 숫자 속도를 같게 만들지 않고, 각각의 안전 속도 상한에 동일한 비율을 적용합니다.
-- 사용자가 너무 짧은 이동 시간을 주면 wrapper가 안전 속도 상한을 넘지 않도록 실제 동작 시간을 자동으로 늘립니다.
-- 기본 안전 속도와 scale은 `omx_config.h` 한 곳에서 관리합니다.
+- 사용자가 너무 짧은 이동 시간을 주면 wrapper가 안전 속도 기준을 넘지 않도록 실제 동작 시간을 자동으로 늘립니다.
+- 기본 속도와 scale은 `omx_config.h` 한 곳에서 관리합니다.
 
 ## Calibration invariant
 
