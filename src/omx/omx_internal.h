@@ -101,6 +101,22 @@ inline bool syncRobotState(
   return true;
 }
 
+// Joint trajectory 시작점은 실제 위치만 유지하고 dynamic 값을 0으로 정규화합니다.
+inline std::vector<robotis_manipulator::JointValue> stationaryJointWaypoint(
+    const std::vector<robotis_manipulator::JointValue>& source)
+{
+  std::vector<robotis_manipulator::JointValue> waypoint = source;
+
+  for (size_t i = 0; i < waypoint.size(); ++i)
+  {
+    waypoint[i].velocity = 0.0;
+    waypoint[i].acceleration = 0.0;
+    waypoint[i].effort = 0.0;
+  }
+
+  return waypoint;
+}
+
 // ROBOTIS control loop을 절대시간 기준으로 실행합니다.
 inline void runManipulator(double sec)
 {
@@ -207,8 +223,11 @@ inline bool moveCalibratedJointRad(
       max_delta_deg,
       OMX_MAX_JOINT_SPEED_DEG_S);
 
+  const std::vector<robotis_manipulator::JointValue> raw_start =
+      stationaryJointWaypoint(raw_present);
+
   omx.processOpenManipulator(omxNowSec());
-  omx.makeJointTrajectory(raw_goal, move_time, raw_present);
+  omx.makeJointTrajectory(raw_goal, move_time, raw_start);
   runManipulator(move_time + OMX_MOTION_SETTLE_SEC);
 
   return syncRobotState();
