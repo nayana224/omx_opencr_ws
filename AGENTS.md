@@ -56,6 +56,8 @@
 - Joint와 TCP는 단위가 다르므로 숫자 속도를 같게 만들지 않고, 각각의 안전 속도 상한에 동일한 비율을 적용합니다.
 - 사용자가 너무 짧은 이동 시간을 주면 wrapper가 안전 속도 기준을 넘지 않도록 실제 동작 시간을 자동으로 늘립니다.
 - 기본 속도와 scale은 `src/omx/omx_config.h` 한 곳에서 관리합니다.
+- Blocking Joint point-to-point 명령은 실제 actuator feedback의 position을 시작점으로 사용합니다.
+- Joint trajectory 시작점의 velocity, acceleration, effort는 0으로 정규화합니다. 정지 후 새 명령에서 feedback noise나 초기화되지 않은 dynamic 값이 minimum-jerk trajectory에 들어가지 않도록 합니다.
 
 ## Calibration invariant
 
